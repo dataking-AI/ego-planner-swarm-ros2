@@ -18,6 +18,7 @@ def generate_launch_description():
     map_size_y = LaunchConfiguration('map_size_y', default = 25.0)
     map_size_z = LaunchConfiguration('map_size_z', default = 2.0)
     odom_topic = LaunchConfiguration('odom_topic', default = 'visual_slam/odom')
+    realworld_experiment = LaunchConfiguration('realworld_experiment', default=False)
     
     
     # 声明全局参数
@@ -28,6 +29,7 @@ def generate_launch_description():
     map_size_y_cmd = DeclareLaunchArgument('map_size_y', default_value=map_size_y, description='Map size along y')
     map_size_z_cmd = DeclareLaunchArgument('map_size_z', default_value=map_size_z, description='Map size along z')
     odom_topic_cmd = DeclareLaunchArgument('odom_topic', default_value=odom_topic, description='Odometry topic')
+    realworld_experiment_cmd = DeclareLaunchArgument('realworld_experiment', default_value=realworld_experiment, description='Wait for /traj_start_trigger before PRESET_TARGET planning')
 
     # 地图属性以及是否使用动力学仿真
     use_mockamap = LaunchConfiguration('use_mockamap', default=False) # map_generator or mockamap 
@@ -115,6 +117,7 @@ def generate_launch_description():
             'planning_horizon': str(7.5),
             'use_distinctive_trajs': 'True',
             'flight_type': str(2),
+            'realworld_experiment': realworld_experiment,
             'point_num': str(4),
             'point0_x': str(15.0),
             'point0_y': str(0.0),
@@ -175,6 +178,7 @@ def generate_launch_description():
     ld.add_action(map_size_y_cmd)
     ld.add_action(map_size_z_cmd)
     ld.add_action(odom_topic_cmd)
+    ld.add_action(realworld_experiment_cmd)
     ld.add_action(obj_num_cmd)
     ld.add_action(drone_id_cmd)
     ld.add_action(use_dynamic_cmd)

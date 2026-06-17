@@ -20,6 +20,7 @@ def generate_launch_description():
     drone_id = LaunchConfiguration('drone_id', default=0)
     odom_topic = LaunchConfiguration('odom_topic', default='visual_slam/odom')
     obj_num = LaunchConfiguration('obj_num', default=10)
+    realworld_experiment = LaunchConfiguration('realworld_experiment', default=False)
 
     # DeclareLaunchArgument definitions
     map_size_x_cmd = DeclareLaunchArgument('map_size_x', default_value=map_size_x, description='Map size along x')
@@ -34,6 +35,7 @@ def generate_launch_description():
     drone_id_cmd = DeclareLaunchArgument('drone_id', default_value=drone_id, description='ID of the drone')
     odom_topic_cmd = DeclareLaunchArgument('odom_topic', default_value=odom_topic, description='Odometry topic')
     obj_num_cmd = DeclareLaunchArgument('obj_num', default_value=obj_num, description='Number of moving objects')
+    realworld_experiment_cmd = DeclareLaunchArgument('realworld_experiment', default_value=realworld_experiment, description='Wait for /traj_start_trigger before PRESET_TARGET planning')
 
     use_dynamic = LaunchConfiguration('use_dynamic', default=True)  
     use_dynamic_cmd = DeclareLaunchArgument('use_dynamic', default_value=use_dynamic, description='Use Drone Simulation Considering Dynamics or Not')
@@ -61,6 +63,7 @@ def generate_launch_description():
             'planning_horizon': str(7.5),
             'use_distinctive_trajs': 'True',
             'flight_type': str(2),
+            'realworld_experiment': realworld_experiment,
             'point_num': str(1),
             'point0_x': target_x,
             'point0_y': target_y,
@@ -154,6 +157,7 @@ def generate_launch_description():
     ld.add_action(drone_id_cmd)
     ld.add_action(odom_topic_cmd)
     ld.add_action(obj_num_cmd)
+    ld.add_action(realworld_experiment_cmd)
     ld.add_action(use_dynamic_cmd)
 
     # Add nodes and includes
