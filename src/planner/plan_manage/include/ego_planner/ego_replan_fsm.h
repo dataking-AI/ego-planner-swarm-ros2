@@ -61,6 +61,7 @@ namespace ego_planner
     int waypoint_num_, wp_id_;
     double planning_horizen_, planning_horizen_time_;
     double emergency_time_;
+    double manual_target_z_;
     bool flag_realworld_experiment_;
     bool enable_fail_safe_;
 

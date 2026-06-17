@@ -43,6 +43,7 @@ def generate_launch_description():
 
     flight_type = LaunchConfiguration('flight_type', default=2)
     realworld_experiment = LaunchConfiguration('realworld_experiment', default=False)
+    manual_target_z = LaunchConfiguration('manual_target_z', default=1.0)
     use_distinctive_trajs = LaunchConfiguration('use_distinctive_trajs', default=True)
     
     obj_num_set = LaunchConfiguration('obj_num_set', default=10)
@@ -84,6 +85,7 @@ def generate_launch_description():
     
     flight_type_arg = DeclareLaunchArgument('flight_type', default_value=flight_type, description='flight_type')
     realworld_experiment_arg = DeclareLaunchArgument('realworld_experiment', default_value=realworld_experiment, description='Wait for /traj_start_trigger before PRESET_TARGET planning')
+    manual_target_z_arg = DeclareLaunchArgument('manual_target_z', default_value=manual_target_z, description='Manual RViz goal target height')
     use_distinctive_trajs_arg = DeclareLaunchArgument('use_distinctive_trajs', default_value=use_distinctive_trajs, description='Use distinctive trajectories')
     obj_num_set_arg = DeclareLaunchArgument('obj_num_set', default_value=obj_num_set, description='Number of objects')
     drone_id_arg = DeclareLaunchArgument('drone_id', default_value=drone_id, description='Drone ID')
@@ -121,6 +123,7 @@ def generate_launch_description():
             {'fsm/planning_horizen_time': 3.0},
             {'fsm/emergency_time': 1.0},
             {'fsm/realworld_experiment': realworld_experiment},
+            {'fsm/manual_target_z': manual_target_z},
             {'fsm/fail_safe': True},
             
             {'fsm/waypoint_num': point_num},
@@ -246,6 +249,7 @@ def generate_launch_description():
     
     ld.add_action(flight_type_arg)
     ld.add_action(realworld_experiment_arg)
+    ld.add_action(manual_target_z_arg)
     ld.add_action(use_distinctive_trajs_arg)
     ld.add_action(obj_num_set_arg)
     ld.add_action(drone_id_arg)
