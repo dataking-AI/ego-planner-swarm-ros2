@@ -44,6 +44,7 @@ def generate_launch_description():
     flight_type = LaunchConfiguration('flight_type', default=2)
     realworld_experiment = LaunchConfiguration('realworld_experiment', default=False)
     manual_target_z = LaunchConfiguration('manual_target_z', default=1.0)
+    virtual_ceil_height = LaunchConfiguration('virtual_ceil_height', default=2)
     use_distinctive_trajs = LaunchConfiguration('use_distinctive_trajs', default=True)
     
     obj_num_set = LaunchConfiguration('obj_num_set', default=10)
@@ -86,6 +87,7 @@ def generate_launch_description():
     flight_type_arg = DeclareLaunchArgument('flight_type', default_value=flight_type, description='flight_type')
     realworld_experiment_arg = DeclareLaunchArgument('realworld_experiment', default_value=realworld_experiment, description='Wait for /traj_start_trigger before PRESET_TARGET planning')
     manual_target_z_arg = DeclareLaunchArgument('manual_target_z', default_value=manual_target_z, description='Manual RViz goal target height')
+    virtual_ceil_height_arg = DeclareLaunchArgument('virtual_ceil_height', default_value=virtual_ceil_height, description='Virtual ceiling height for the inflated occupancy map')
     use_distinctive_trajs_arg = DeclareLaunchArgument('use_distinctive_trajs', default_value=use_distinctive_trajs, description='Use distinctive trajectories')
     obj_num_set_arg = DeclareLaunchArgument('obj_num_set', default_value=obj_num_set, description='Number of objects')
     drone_id_arg = DeclareLaunchArgument('drone_id', default_value=drone_id, description='Drone ID')
@@ -175,7 +177,7 @@ def generate_launch_description():
             {'grid_map/min_ray_length': 0.1},
             {'grid_map/max_ray_length': 4.5},
             
-            {'grid_map/virtual_ceil_height': 2.9},
+            {'grid_map/virtual_ceil_height': virtual_ceil_height},
             {'grid_map/visualization_truncate_height': 1.8},
             {'grid_map/show_occ_time': False},
             {'grid_map/pose_type': 1},
@@ -250,6 +252,7 @@ def generate_launch_description():
     ld.add_action(flight_type_arg)
     ld.add_action(realworld_experiment_arg)
     ld.add_action(manual_target_z_arg)
+    ld.add_action(virtual_ceil_height_arg)
     ld.add_action(use_distinctive_trajs_arg)
     ld.add_action(obj_num_set_arg)
     ld.add_action(drone_id_arg)
