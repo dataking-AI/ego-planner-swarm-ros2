@@ -44,7 +44,8 @@ def generate_launch_description():
     flight_type = LaunchConfiguration('flight_type', default=2)
     realworld_experiment = LaunchConfiguration('realworld_experiment', default=False)
     manual_target_z = LaunchConfiguration('manual_target_z', default=1.0)
-    virtual_ceil_height = LaunchConfiguration('virtual_ceil_height', default=2)
+    virtual_ceil_height = LaunchConfiguration('virtual_ceil_height', default=2.0)
+    visualization_truncate_height = LaunchConfiguration('visualization_truncate_height', default=6.0)
     use_distinctive_trajs = LaunchConfiguration('use_distinctive_trajs', default=True)
     
     obj_num_set = LaunchConfiguration('obj_num_set', default=10)
@@ -88,6 +89,7 @@ def generate_launch_description():
     realworld_experiment_arg = DeclareLaunchArgument('realworld_experiment', default_value=realworld_experiment, description='Wait for /traj_start_trigger before PRESET_TARGET planning')
     manual_target_z_arg = DeclareLaunchArgument('manual_target_z', default_value=manual_target_z, description='Manual RViz goal target height')
     virtual_ceil_height_arg = DeclareLaunchArgument('virtual_ceil_height', default_value=virtual_ceil_height, description='Virtual ceiling height for the inflated occupancy map')
+    visualization_truncate_height_arg = DeclareLaunchArgument('visualization_truncate_height', default_value=visualization_truncate_height, description='Max height published in occupancy visualization')
     use_distinctive_trajs_arg = DeclareLaunchArgument('use_distinctive_trajs', default_value=use_distinctive_trajs, description='Use distinctive trajectories')
     obj_num_set_arg = DeclareLaunchArgument('obj_num_set', default_value=obj_num_set, description='Number of objects')
     drone_id_arg = DeclareLaunchArgument('drone_id', default_value=drone_id, description='Drone ID')
@@ -115,6 +117,7 @@ def generate_launch_description():
             ('grid_map/cloud', ['drone_', drone_id, '_', cloud_topic]),
             ('grid_map/pose', ['drone_', drone_id, '_', camera_pose_topic]),
             ('grid_map/depth', ['drone_', drone_id, '_', depth_topic]),
+            ('grid_map/occupancy', ['drone_', drone_id, '_grid/grid_map/occupancy']),
             ('grid_map/occupancy_inflate', ['drone_', drone_id, '_grid/grid_map/occupancy_inflate'])
         ],
         parameters=[
@@ -152,7 +155,7 @@ def generate_launch_description():
             {'grid_map/local_update_range_x': 5.5},
             {'grid_map/local_update_range_y': 5.5},
             {'grid_map/local_update_range_z': 4.5},
-            {'grid_map/obstacles_inflation': 0.099},
+            {'grid_map/obstacles_inflation': 0.3},
             {'grid_map/local_map_margin': 10},
             {'grid_map/ground_height': -0.01},
             # camera parameter
@@ -178,7 +181,7 @@ def generate_launch_description():
             {'grid_map/max_ray_length': 4.5},
             
             {'grid_map/virtual_ceil_height': virtual_ceil_height},
-            {'grid_map/visualization_truncate_height': 1.8},
+            {'grid_map/visualization_truncate_height': visualization_truncate_height},
             {'grid_map/show_occ_time': False},
             {'grid_map/pose_type': 1},
             {'grid_map/frame_id': "world"},
@@ -253,6 +256,7 @@ def generate_launch_description():
     ld.add_action(realworld_experiment_arg)
     ld.add_action(manual_target_z_arg)
     ld.add_action(virtual_ceil_height_arg)
+    ld.add_action(visualization_truncate_height_arg)
     ld.add_action(use_distinctive_trajs_arg)
     ld.add_action(obj_num_set_arg)
     ld.add_action(drone_id_arg)
