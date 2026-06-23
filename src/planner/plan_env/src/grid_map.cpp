@@ -1002,7 +1002,14 @@ void GridMap::processCloudRaycast(const pcl::PointCloud<pcl::PointXYZ> &cloud,
   raycastProcess(ray_origin, mp_.cloud_raycast_max_range_);
 
   if (md_.local_updated_)
+  {
+    posToIndex(ray_origin - mp_.local_update_range_, md_.local_bound_min_);
+    posToIndex(ray_origin + mp_.local_update_range_, md_.local_bound_max_);
+    boundIndex(md_.local_bound_min_);
+    boundIndex(md_.local_bound_max_);
+
     clearAndInflateLocalMap();
+  }
 
   md_.local_updated_ = false;
 }
