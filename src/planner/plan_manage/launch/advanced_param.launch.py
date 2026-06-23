@@ -3,6 +3,7 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 
 def generate_launch_description():
     # LaunchConfigurations
@@ -14,6 +15,10 @@ def generate_launch_description():
     camera_pose_topic = LaunchConfiguration('camera_pose_topic', default='camera_pose')
     depth_topic = LaunchConfiguration('depth_topic', default='depth_image')
     cloud_topic = LaunchConfiguration('cloud_topic', default='cloud')
+    lidar_pose_topic = LaunchConfiguration('lidar_pose_topic')
+    cloud_use_raycast = LaunchConfiguration('cloud_use_raycast')
+    depth_raycast_max_range = LaunchConfiguration('depth_raycast_max_range')
+    cloud_raycast_max_range = LaunchConfiguration('cloud_raycast_max_range')
     
     cx = LaunchConfiguration('cx', default=321.04638671875)
     cy = LaunchConfiguration('cy', default=243.44969177246094)
@@ -60,6 +65,10 @@ def generate_launch_description():
     camera_pose_topic_arg = DeclareLaunchArgument('camera_pose_topic', default_value=camera_pose_topic, description='Camera pose topic')
     depth_topic_arg = DeclareLaunchArgument('depth_topic', default_value=depth_topic, description='Depth topic')
     cloud_topic_arg = DeclareLaunchArgument('cloud_topic', default_value=cloud_topic, description='Point cloud topic')
+    lidar_pose_topic_arg = DeclareLaunchArgument('lidar_pose_topic', default_value='lidar_pose', description='Lidar pose topic for cloud raycasting')
+    cloud_use_raycast_arg = DeclareLaunchArgument('cloud_use_raycast', default_value='false', description='Use raycasting for grid_map/cloud')
+    depth_raycast_max_range_arg = DeclareLaunchArgument('depth_raycast_max_range', default_value='4.5', description='Depth image raycast max range')
+    cloud_raycast_max_range_arg = DeclareLaunchArgument('cloud_raycast_max_range', default_value='5.5', description='Cloud raycast max range')
     cx_arg = DeclareLaunchArgument('cx', default_value=cx, description='Camera intrinsic cx')
     cy_arg = DeclareLaunchArgument('cy', default_value=cy, description='Camera intrinsic cy')
     fx_arg = DeclareLaunchArgument('fx', default_value=fx, description='Camera intrinsic fx')
@@ -115,6 +124,7 @@ def generate_launch_description():
             
             ('grid_map/odom', ['drone_', drone_id, '_', odometry_topic]),
             ('grid_map/cloud', ['drone_', drone_id, '_', cloud_topic]),
+            ('grid_map/lidar_pose', ['drone_', drone_id, '_', lidar_pose_topic]),
             ('grid_map/pose', ['drone_', drone_id, '_', camera_pose_topic]),
             ('grid_map/depth', ['drone_', drone_id, '_', depth_topic]),
             ('grid_map/occupancy', ['drone_', drone_id, '_grid/grid_map/occupancy']),
@@ -178,7 +188,10 @@ def generate_launch_description():
             {'grid_map/p_max': 0.90},
             {'grid_map/p_occ': 0.80},
             {'grid_map/min_ray_length': 0.1},
-            {'grid_map/max_ray_length': 4.5},
+            {'grid_map/depth_raycast_max_range': ParameterValue(depth_raycast_max_range, value_type=float)},
+            {'grid_map/cloud_raycast_max_range': ParameterValue(cloud_raycast_max_range, value_type=float)},
+            {'grid_map/cloud_use_raycast': ParameterValue(cloud_use_raycast, value_type=bool)},
+            {'grid_map/lidar_pose_topic': 'grid_map/lidar_pose'},
             
             {'grid_map/virtual_ceil_height': virtual_ceil_height},
             {'grid_map/visualization_truncate_height': visualization_truncate_height},
@@ -227,6 +240,10 @@ def generate_launch_description():
     ld.add_action(camera_pose_topic_arg)
     ld.add_action(depth_topic_arg)
     ld.add_action(cloud_topic_arg)
+    ld.add_action(lidar_pose_topic_arg)
+    ld.add_action(cloud_use_raycast_arg)
+    ld.add_action(depth_raycast_max_range_arg)
+    ld.add_action(cloud_raycast_max_range_arg)
     ld.add_action(cx_arg)
     ld.add_action(cy_arg)
     ld.add_action(fx_arg)

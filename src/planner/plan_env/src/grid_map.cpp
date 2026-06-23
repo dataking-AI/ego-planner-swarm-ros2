@@ -34,7 +34,10 @@ void GridMap::initMap(rclcpp::Node::SharedPtr node)
   node_->declare_parameter("grid_map/p_max", 0.97);
   node_->declare_parameter("grid_map/p_occ", 0.80);
   node_->declare_parameter("grid_map/min_ray_length", -0.1);
-  node_->declare_parameter("grid_map/max_ray_length", -0.1);
+  node_->declare_parameter("grid_map/depth_raycast_max_range", 4.5);
+  node_->declare_parameter("grid_map/cloud_raycast_max_range", 5.5);
+  node_->declare_parameter("grid_map/cloud_use_raycast", false);
+  node_->declare_parameter("grid_map/lidar_pose_topic", "grid_map/lidar_pose");
   node_->declare_parameter("grid_map/visualization_truncate_height", -0.1);
   node_->declare_parameter("grid_map/virtual_ceil_height", -0.1);
   node_->declare_parameter("grid_map/virtual_ceil_yp", -0.1);
@@ -71,7 +74,11 @@ void GridMap::initMap(rclcpp::Node::SharedPtr node)
   node_->get_parameter("grid_map/p_max", mp_.p_max_);
   node_->get_parameter("grid_map/p_occ", mp_.p_occ_);
   node_->get_parameter("grid_map/min_ray_length", mp_.min_ray_length_);
-  node_->get_parameter("grid_map/max_ray_length", mp_.max_ray_length_);
+  node_->get_parameter("grid_map/depth_raycast_max_range", mp_.depth_raycast_max_range_);
+  node_->get_parameter("grid_map/cloud_raycast_max_range", mp_.cloud_raycast_max_range_);
+  node_->get_parameter("grid_map/cloud_use_raycast", mp_.cloud_use_raycast_);
+  std::string lidar_pose_topic;
+  node_->get_parameter("grid_map/lidar_pose_topic", lidar_pose_topic);
   node_->get_parameter("grid_map/visualization_truncate_height", mp_.visualization_truncate_height_);
   node_->get_parameter("grid_map/virtual_ceil_height", mp_.virtual_ceil_height_);
   node_->get_parameter("grid_map/virtual_ceil_yp", mp_.virtual_ceil_yp_);
@@ -82,6 +89,13 @@ void GridMap::initMap(rclcpp::Node::SharedPtr node)
   node_->get_parameter("grid_map/local_map_margin", mp_.local_map_margin_);
   node_->get_parameter("grid_map/ground_height", mp_.ground_height_);
   node_->get_parameter("grid_map/odom_depth_timeout", mp_.odom_depth_timeout_);
+
+  RCLCPP_INFO(node_->get_logger(),
+              "grid_map raycast config: cloud_use_raycast=%s depth_raycast_max_range=%.2f cloud_raycast_max_range=%.2f lidar_pose_topic=%s",
+              mp_.cloud_use_raycast_ ? "true" : "false",
+              mp_.depth_raycast_max_range_,
+              mp_.cloud_raycast_max_range_,
+              lidar_pose_topic.c_str());
 
   if (mp_.virtual_ceil_height_ - mp_.ground_height_ > z_size)
   {
@@ -165,8 +179,22 @@ void GridMap::initMap(rclcpp::Node::SharedPtr node)
   }
 
   // 使用独立的里程计和点云订阅
-  indep_cloud_sub_ = node_->create_subscription<sensor_msgs::msg::PointCloud2>(
-      "grid_map/cloud", 10, std::bind(&GridMap::cloudCallback, this, std::placeholders::_1));
+  if (mp_.cloud_use_raycast_)
+  {
+    cloud_raycast_sub_ = std::make_shared<message_filters::Subscriber<sensor_msgs::msg::PointCloud2>>(
+        node_, "grid_map/cloud", rclcpp::QoS(10).get_rmw_qos_profile());
+    lidar_pose_sub_ = std::make_shared<message_filters::Subscriber<geometry_msgs::msg::PoseStamped>>(
+        node_, lidar_pose_topic, rclcpp::QoS(10).get_rmw_qos_profile());
+    sync_cloud_pose_ = std::make_shared<message_filters::Synchronizer<SyncPolicyCloudPose>>(
+        SyncPolicyCloudPose(50), *cloud_raycast_sub_, *lidar_pose_sub_);
+    sync_cloud_pose_->registerCallback(
+        std::bind(&GridMap::cloudPoseCallback, this, std::placeholders::_1, std::placeholders::_2));
+  }
+  else
+  {
+    indep_cloud_sub_ = node_->create_subscription<sensor_msgs::msg::PointCloud2>(
+        "grid_map/cloud", 10, std::bind(&GridMap::cloudCallback, this, std::placeholders::_1));
+  }
 
   indep_odom_sub_ = node_->create_subscription<nav_msgs::msg::Odometry>(
       "grid_map/odom", 10, std::bind(&GridMap::odomCallback, this, std::placeholders::_1));
@@ -326,7 +354,7 @@ void GridMap::projectDepthImage()
 
           if (*row_ptr == 0)
           {
-            depth = mp_.max_ray_length_ + 0.1;
+            depth = mp_.depth_raycast_max_range_ + 0.1;
           }
           else if (depth < mp_.depth_filter_mindist_)
           {
@@ -334,7 +362,7 @@ void GridMap::projectDepthImage()
           }
           else if (depth > mp_.depth_filter_maxdist_)
           {
-            depth = mp_.max_ray_length_ + 0.1;
+            depth = mp_.depth_raycast_max_range_ + 0.1;
           }
 
           // project to world frame
@@ -381,11 +409,18 @@ void GridMap::projectDepthImage()
   md_.last_depth_image_ = md_.depth_image_;
 }
 
-void GridMap::raycastProcess()
+void GridMap::raycastProcess(const Eigen::Vector3d &ray_origin, double max_ray_length)
 {
   // if (md_.proj_points_.size() == 0)
   if (md_.proj_points_cnt == 0)
     return;
+
+  if (max_ray_length <= 0.0)
+  {
+    RCLCPP_WARN_THROTTLE(node_->get_logger(), *node_->get_clock(), 2000,
+                         "raycast max range is non-positive; skipping occupancy update.");
+    return;
+  }
 
   rclcpp::Time t1, t2;
 
@@ -415,22 +450,22 @@ void GridMap::raycastProcess()
 
     if (!isInMap(pt_w))
     {
-      pt_w = closetPointInMap(pt_w, md_.camera_pos_);
+      pt_w = closetPointInMap(pt_w, ray_origin);
 
-      length = (pt_w - md_.camera_pos_).norm();
-      if (length > mp_.max_ray_length_)
+      length = (pt_w - ray_origin).norm();
+      if (length > max_ray_length)
       {
-        pt_w = (pt_w - md_.camera_pos_) / length * mp_.max_ray_length_ + md_.camera_pos_;
+        pt_w = (pt_w - ray_origin) / length * max_ray_length + ray_origin;
       }
       vox_idx = setCacheOccupancy(pt_w, 0);
     }
     else
     {
-      length = (pt_w - md_.camera_pos_).norm();
+      length = (pt_w - ray_origin).norm();
 
-      if (length > mp_.max_ray_length_)
+      if (length > max_ray_length)
       {
-        pt_w = (pt_w - md_.camera_pos_) / length * mp_.max_ray_length_ + md_.camera_pos_;
+        pt_w = (pt_w - ray_origin) / length * max_ray_length + ray_origin;
         vox_idx = setCacheOccupancy(pt_w, 0);
       }
       else
@@ -461,12 +496,12 @@ void GridMap::raycastProcess()
       }
     }
 
-    raycaster.setInput(pt_w / mp_.resolution_, md_.camera_pos_ / mp_.resolution_);
+    raycaster.setInput(pt_w / mp_.resolution_, ray_origin / mp_.resolution_);
 
     while (raycaster.step(ray_pt))
     {
       Eigen::Vector3d tmp = (ray_pt + half) * mp_.resolution_;
-      length = (tmp - md_.camera_pos_).norm();
+      length = (tmp - ray_origin).norm();
 
       // if (length < mp_.min_ray_length_) break;
 
@@ -486,13 +521,13 @@ void GridMap::raycastProcess()
     }
   }
 
-  min_x = min(min_x, md_.camera_pos_(0));
-  min_y = min(min_y, md_.camera_pos_(1));
-  min_z = min(min_z, md_.camera_pos_(2));
+  min_x = min(min_x, ray_origin(0));
+  min_y = min(min_y, ray_origin(1));
+  min_z = min(min_z, ray_origin(2));
 
-  max_x = max(max_x, md_.camera_pos_(0));
-  max_y = max(max_y, md_.camera_pos_(1));
-  max_z = max(max_z, md_.camera_pos_(2));
+  max_x = max(max_x, ray_origin(0));
+  max_y = max(max_y, ray_origin(1));
+  max_z = max(max_z, ray_origin(2));
   max_z = max(max_z, mp_.ground_height_);
 
   posToIndex(Eigen::Vector3d(max_x, max_y, max_z), md_.local_bound_max_);
@@ -503,8 +538,8 @@ void GridMap::raycastProcess()
   md_.local_updated_ = true;
 
   // update occupancy cached in queue
-  Eigen::Vector3d local_range_min = md_.camera_pos_ - mp_.local_update_range_;
-  Eigen::Vector3d local_range_max = md_.camera_pos_ + mp_.local_update_range_;
+  Eigen::Vector3d local_range_min = ray_origin - mp_.local_update_range_;
+  Eigen::Vector3d local_range_max = ray_origin + mp_.local_update_range_;
 
   Eigen::Vector3i min_id, max_id;
   posToIndex(local_range_min, min_id);
@@ -733,7 +768,7 @@ void GridMap::updateOccupancyCallback()
 
   projectDepthImage();
   // t2 = ros::Time::now();
-  raycastProcess();
+  raycastProcess(md_.camera_pos_, mp_.depth_raycast_max_range_);
   // t3 = ros::Time::now();
 
   if (md_.local_updated_)
@@ -820,7 +855,7 @@ void GridMap::cloudCallback(const sensor_msgs::msg::PointCloud2::ConstPtr &img)
   if (latest_cloud.points.size() == 0)
     return;
 
-  if (isnan(md_.camera_pos_(0)) || isnan(md_.camera_pos_(1)) || isnan(md_.camera_pos_(2)))
+  if (std::isnan(md_.camera_pos_(0)) || std::isnan(md_.camera_pos_(1)) || std::isnan(md_.camera_pos_(2)))
     return;
 
   this->resetBuffer(md_.camera_pos_ - mp_.local_update_range_,
@@ -912,6 +947,64 @@ void GridMap::cloudCallback(const sensor_msgs::msg::PointCloud2::ConstPtr &img)
         md_.occupancy_buffer_inflate_[toAddress(x, y, ceil_id)] = 1;
       }
   }
+}
+
+void GridMap::cloudPoseCallback(const sensor_msgs::msg::PointCloud2::ConstPtr &cloud_msg,
+                                const geometry_msgs::msg::PoseStamped::ConstPtr &pose_msg)
+{
+  pcl::PointCloud<pcl::PointXYZ> latest_cloud;
+  pcl::fromROSMsg(*cloud_msg, latest_cloud);
+
+  md_.has_cloud_ = true;
+
+  if (latest_cloud.points.empty())
+    return;
+
+  Eigen::Vector3d ray_origin(
+      pose_msg->pose.position.x,
+      pose_msg->pose.position.y,
+      pose_msg->pose.position.z);
+
+  if (!isInMap(ray_origin))
+  {
+    RCLCPP_WARN_THROTTLE(node_->get_logger(), *node_->get_clock(), 2000,
+                         "lidar pose is outside grid map; dropping cloud raycast frame.");
+    return;
+  }
+
+  processCloudRaycast(latest_cloud, ray_origin);
+}
+
+void GridMap::processCloudRaycast(const pcl::PointCloud<pcl::PointXYZ> &cloud,
+                                  const Eigen::Vector3d &ray_origin)
+{
+  md_.proj_points_cnt = 0;
+  if (md_.proj_points_.size() < cloud.points.size())
+    md_.proj_points_.resize(cloud.points.size());
+
+  for (const auto &pt : cloud.points)
+  {
+    Eigen::Vector3d p3d(pt.x, pt.y, pt.z);
+    if (!std::isfinite(p3d(0)) || !std::isfinite(p3d(1)) || !std::isfinite(p3d(2)))
+      continue;
+
+    Eigen::Vector3d devi = p3d - ray_origin;
+    if (fabs(devi(0)) >= mp_.local_update_range_(0) || fabs(devi(1)) >= mp_.local_update_range_(1) ||
+        fabs(devi(2)) >= mp_.local_update_range_(2))
+      continue;
+
+    md_.proj_points_[md_.proj_points_cnt++] = p3d;
+  }
+
+  if (md_.proj_points_cnt == 0)
+    return;
+
+  raycastProcess(ray_origin, mp_.cloud_raycast_max_range_);
+
+  if (md_.local_updated_)
+    clearAndInflateLocalMap();
+
+  md_.local_updated_ = false;
 }
 
 void GridMap::publishMap()
