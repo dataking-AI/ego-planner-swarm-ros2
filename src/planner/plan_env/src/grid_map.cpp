@@ -38,6 +38,10 @@ void GridMap::initMap(rclcpp::Node::SharedPtr node)
   node_->declare_parameter("grid_map/cloud_raycast_max_range", 5.5);
   node_->declare_parameter("grid_map/cloud_use_raycast", false);
   node_->declare_parameter("grid_map/lidar_pose_topic", "grid_map/lidar_pose");
+  node_->declare_parameter("grid_map/cloud_raycast_pose_type", "lidar_pose");
+  node_->declare_parameter("grid_map/cloud_raycast_odom_lidar_offset_x", 0.0);
+  node_->declare_parameter("grid_map/cloud_raycast_odom_lidar_offset_y", 0.0);
+  node_->declare_parameter("grid_map/cloud_raycast_odom_lidar_offset_z", 0.0);
   node_->declare_parameter("grid_map/visualization_truncate_height", -0.1);
   node_->declare_parameter("grid_map/virtual_ceil_height", -0.1);
   node_->declare_parameter("grid_map/virtual_ceil_yp", -0.1);
@@ -79,6 +83,10 @@ void GridMap::initMap(rclcpp::Node::SharedPtr node)
   node_->get_parameter("grid_map/cloud_use_raycast", mp_.cloud_use_raycast_);
   std::string lidar_pose_topic;
   node_->get_parameter("grid_map/lidar_pose_topic", lidar_pose_topic);
+  node_->get_parameter("grid_map/cloud_raycast_pose_type", mp_.cloud_raycast_pose_type_);
+  node_->get_parameter("grid_map/cloud_raycast_odom_lidar_offset_x", mp_.cloud_raycast_odom_lidar_offset_(0));
+  node_->get_parameter("grid_map/cloud_raycast_odom_lidar_offset_y", mp_.cloud_raycast_odom_lidar_offset_(1));
+  node_->get_parameter("grid_map/cloud_raycast_odom_lidar_offset_z", mp_.cloud_raycast_odom_lidar_offset_(2));
   node_->get_parameter("grid_map/visualization_truncate_height", mp_.visualization_truncate_height_);
   node_->get_parameter("grid_map/virtual_ceil_height", mp_.virtual_ceil_height_);
   node_->get_parameter("grid_map/virtual_ceil_yp", mp_.virtual_ceil_yp_);
@@ -91,10 +99,11 @@ void GridMap::initMap(rclcpp::Node::SharedPtr node)
   node_->get_parameter("grid_map/odom_depth_timeout", mp_.odom_depth_timeout_);
 
   RCLCPP_INFO(node_->get_logger(),
-              "grid_map raycast config: cloud_use_raycast=%s depth_raycast_max_range=%.2f cloud_raycast_max_range=%.2f lidar_pose_topic=%s",
+              "grid_map raycast config: cloud_use_raycast=%s depth_raycast_max_range=%.2f cloud_raycast_max_range=%.2f pose_type=%s lidar_pose_topic=%s",
               mp_.cloud_use_raycast_ ? "true" : "false",
               mp_.depth_raycast_max_range_,
               mp_.cloud_raycast_max_range_,
+              mp_.cloud_raycast_pose_type_.c_str(),
               lidar_pose_topic.c_str());
 
   if (mp_.virtual_ceil_height_ - mp_.ground_height_ > z_size)
@@ -183,12 +192,30 @@ void GridMap::initMap(rclcpp::Node::SharedPtr node)
   {
     cloud_raycast_sub_ = std::make_shared<message_filters::Subscriber<sensor_msgs::msg::PointCloud2>>(
         node_, "grid_map/cloud", rclcpp::QoS(10).get_rmw_qos_profile());
-    lidar_pose_sub_ = std::make_shared<message_filters::Subscriber<geometry_msgs::msg::PoseStamped>>(
-        node_, lidar_pose_topic, rclcpp::QoS(10).get_rmw_qos_profile());
-    sync_cloud_pose_ = std::make_shared<message_filters::Synchronizer<SyncPolicyCloudPose>>(
-        SyncPolicyCloudPose(50), *cloud_raycast_sub_, *lidar_pose_sub_);
-    sync_cloud_pose_->registerCallback(
-        std::bind(&GridMap::cloudPoseCallback, this, std::placeholders::_1, std::placeholders::_2));
+    if (mp_.cloud_raycast_pose_type_ == "odom")
+    {
+      cloud_odom_sub_ = std::make_shared<message_filters::Subscriber<nav_msgs::msg::Odometry>>(
+          node_, "grid_map/odom", rclcpp::QoS(100).get_rmw_qos_profile());
+      sync_cloud_odom_ = std::make_shared<message_filters::Synchronizer<SyncPolicyCloudOdom>>(
+          SyncPolicyCloudOdom(50), *cloud_raycast_sub_, *cloud_odom_sub_);
+      sync_cloud_odom_->registerCallback(
+          std::bind(&GridMap::cloudOdomCallback, this, std::placeholders::_1, std::placeholders::_2));
+    }
+    else
+    {
+      if (mp_.cloud_raycast_pose_type_ != "lidar_pose")
+      {
+        RCLCPP_WARN(node_->get_logger(),
+                    "Unsupported cloud_raycast_pose_type '%s'; using lidar_pose.",
+                    mp_.cloud_raycast_pose_type_.c_str());
+      }
+      lidar_pose_sub_ = std::make_shared<message_filters::Subscriber<geometry_msgs::msg::PoseStamped>>(
+          node_, lidar_pose_topic, rclcpp::QoS(10).get_rmw_qos_profile());
+      sync_cloud_pose_ = std::make_shared<message_filters::Synchronizer<SyncPolicyCloudPose>>(
+          SyncPolicyCloudPose(50), *cloud_raycast_sub_, *lidar_pose_sub_);
+      sync_cloud_pose_->registerCallback(
+          std::bind(&GridMap::cloudPoseCallback, this, std::placeholders::_1, std::placeholders::_2));
+    }
   }
   else
   {
@@ -969,6 +996,46 @@ void GridMap::cloudPoseCallback(const sensor_msgs::msg::PointCloud2::ConstPtr &c
   {
     RCLCPP_WARN_THROTTLE(node_->get_logger(), *node_->get_clock(), 2000,
                          "lidar pose is outside grid map; dropping cloud raycast frame.");
+    return;
+  }
+
+  processCloudRaycast(latest_cloud, ray_origin);
+}
+
+void GridMap::cloudOdomCallback(const sensor_msgs::msg::PointCloud2::ConstPtr &cloud_msg,
+                                const nav_msgs::msg::Odometry::ConstPtr &odom_msg)
+{
+  pcl::PointCloud<pcl::PointXYZ> latest_cloud;
+  pcl::fromROSMsg(*cloud_msg, latest_cloud);
+
+  md_.has_cloud_ = true;
+
+  if (latest_cloud.points.empty())
+    return;
+
+  Eigen::Quaterniond odom_q(
+      odom_msg->pose.pose.orientation.w,
+      odom_msg->pose.pose.orientation.x,
+      odom_msg->pose.pose.orientation.y,
+      odom_msg->pose.pose.orientation.z);
+  if (odom_q.norm() < 1e-6)
+  {
+    RCLCPP_WARN_THROTTLE(node_->get_logger(), *node_->get_clock(), 2000,
+                         "odom orientation is invalid; dropping cloud raycast frame.");
+    return;
+  }
+  odom_q.normalize();
+
+  Eigen::Vector3d ray_origin(
+      odom_msg->pose.pose.position.x,
+      odom_msg->pose.pose.position.y,
+      odom_msg->pose.pose.position.z);
+  ray_origin += odom_q * mp_.cloud_raycast_odom_lidar_offset_;
+
+  if (!isInMap(ray_origin))
+  {
+    RCLCPP_WARN_THROTTLE(node_->get_logger(), *node_->get_clock(), 2000,
+                         "odom-derived lidar pose is outside grid map; dropping cloud raycast frame.");
     return;
   }
 

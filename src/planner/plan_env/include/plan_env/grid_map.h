@@ -78,6 +78,8 @@ struct MappingParameters
       min_occupancy_log_;                  // logit of occupancy probability
   double min_ray_length_, depth_raycast_max_range_, cloud_raycast_max_range_;
   bool cloud_use_raycast_;
+  string cloud_raycast_pose_type_;
+  Eigen::Vector3d cloud_raycast_odom_lidar_offset_;
 
   /* local map update and clear */
   int local_map_margin_;
@@ -212,6 +214,8 @@ private:
   void cloudCallback(const sensor_msgs::msg::PointCloud2::ConstPtr &img);
   void cloudPoseCallback(const sensor_msgs::msg::PointCloud2::ConstPtr &cloud,
                          const geometry_msgs::msg::PoseStamped::ConstPtr &pose);
+  void cloudOdomCallback(const sensor_msgs::msg::PointCloud2::ConstPtr &cloud,
+                         const nav_msgs::msg::Odometry::ConstPtr &odom);
   void odomCallback(const nav_msgs::msg::Odometry::SharedPtr odom);
 
   // update occupancy by raycasting
@@ -239,9 +243,12 @@ private:
       SyncPolicyImagePose;
   typedef message_filters::sync_policies::ApproximateTime<sensor_msgs::msg::PointCloud2, geometry_msgs::msg::PoseStamped>
       SyncPolicyCloudPose;
+  typedef message_filters::sync_policies::ApproximateTime<sensor_msgs::msg::PointCloud2, nav_msgs::msg::Odometry>
+      SyncPolicyCloudOdom;
   typedef shared_ptr<message_filters::Synchronizer<SyncPolicyImagePose>> SynchronizerImagePose;
   typedef shared_ptr<message_filters::Synchronizer<SyncPolicyImageOdom>> SynchronizerImageOdom;
   typedef shared_ptr<message_filters::Synchronizer<SyncPolicyCloudPose>> SynchronizerCloudPose;
+  typedef shared_ptr<message_filters::Synchronizer<SyncPolicyCloudOdom>> SynchronizerCloudOdom;
 
   rclcpp::Node::SharedPtr node_;
   std::shared_ptr<message_filters::Subscriber<sensor_msgs::msg::Image>> depth_sub_;
@@ -249,9 +256,11 @@ private:
   std::shared_ptr<message_filters::Subscriber<nav_msgs::msg::Odometry>> odom_sub_;
   std::shared_ptr<message_filters::Subscriber<sensor_msgs::msg::PointCloud2>> cloud_raycast_sub_;
   std::shared_ptr<message_filters::Subscriber<geometry_msgs::msg::PoseStamped>> lidar_pose_sub_;
+  std::shared_ptr<message_filters::Subscriber<nav_msgs::msg::Odometry>> cloud_odom_sub_;
   SynchronizerImagePose sync_image_pose_;
   SynchronizerImageOdom sync_image_odom_;
   SynchronizerCloudPose sync_cloud_pose_;
+  SynchronizerCloudOdom sync_cloud_odom_;
 
   rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr indep_cloud_sub_;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr indep_odom_sub_;
