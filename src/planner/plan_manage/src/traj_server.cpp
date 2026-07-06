@@ -173,6 +173,7 @@ void cmdCallback()
 
   Eigen::Vector3d pos(Eigen::Vector3d::Zero()), vel(Eigen::Vector3d::Zero()), acc(Eigen::Vector3d::Zero()), pos_f;
   std::pair<double, double> yaw_yawdot(0, 0);
+  bool traj_completed = false;
 
   static rclcpp::Time time_last = clock.now();
   if (t_cur < traj_duration_ && t_cur >= 0.0)
@@ -190,7 +191,7 @@ void cmdCallback()
   }
   else if (t_cur >= traj_duration_)
   {
-    /* hover when finish traj_ */
+    /* notify downstream controllers when the trajectory finishes */
     pos = traj_[0].evaluateDeBoorT(traj_duration_);
     vel.setZero();
     acc.setZero();
@@ -199,6 +200,7 @@ void cmdCallback()
     yaw_yawdot.second = 0;
 
     pos_f = pos;
+    traj_completed = true;
   }
   else
   {
@@ -208,7 +210,9 @@ void cmdCallback()
 
   cmd.header.stamp = time_now;
   cmd.header.frame_id = "world";
-  cmd.trajectory_flag = quadrotor_msgs::msg::PositionCommand::TRAJECTORY_STATUS_READY;
+  cmd.trajectory_flag = traj_completed ?
+    quadrotor_msgs::msg::PositionCommand::TRAJECTORY_STATUS_COMPLETED :
+    quadrotor_msgs::msg::PositionCommand::TRAJECTORY_STATUS_READY;
   cmd.trajectory_id = traj_id_;
 
   cmd.position.x = pos(0);
@@ -229,6 +233,9 @@ void cmdCallback()
   last_yaw_ = cmd.yaw;
 
   pos_cmd_pub->publish(cmd);
+
+  if (traj_completed)
+    receive_traj_ = false;
 }
 
 int main(int argc, char **argv)
